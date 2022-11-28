@@ -169,8 +169,8 @@ class Tool:
         obj.payloadType = 200
         obj.payload.token = self.token
         obj.payload.liveStreamId = self.liveRoomId
-        obj.payload.pageId = self.getPageId()  # page_id
-        data = obj.SerializeToString()  # 序列号成二进制字符串
+        obj.payload.pageId = self.getPageId()  # pageId
+        data = obj.SerializeToString()  # 序列化成二进制字符串
         return data
 
     # 封装心跳包
@@ -191,7 +191,7 @@ class Tool:
 
     def getPageId(self):
         # js 中获取到该值的组成字符串
-        charset = "bjectSymhasOwnProp-0123456789ABCDEFGHIJKLMNQRTUVWXYZ_dfgiklquvxz"
+        charset = "-_zyxwvutsrqponmlkjihgfedcba9876543210ZYXWVUTSRQPONMLKJIHGFEDCBA"
         pageId = ""
         for _ in range(0, 16):
             pageId += random.choice(charset)
@@ -227,6 +227,13 @@ class Tool:
         query = 'query UserCardInfoById($principalId: String, $count: Int) {\n  userCardInfo(principalId: $principalId, count: $count) {\n    id\n    originUserId\n    avatar\n    name\n    description\n    sex\n    constellation\n    cityName\n    followStatus\n    privacy\n    feeds {\n      eid\n      photoId\n      thumbnailUrl\n      timestamp\n      __typename\n    }\n    counts {\n      fan\n      follow\n      photo\n      __typename\n    }\n    __typename\n  }\n}\n'
         return self.liveGraphql('UserCardInfoById', variables, query)
 
+    # 获取所有礼物信息
+    def getAllGifts(self):
+        variables = {}
+        query = 'query AllGifts {\n  allGifts\n}\n'
+        return self.liveGraphql('AllGifts', variables, query)
+
+    # 底层统一请求方法
     def liveGraphql(self, operationName: str, variables, query, headers=None):
         if headers is None:
             head = self.headers
