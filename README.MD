@@ -1,18 +1,31 @@
-# 快手网页版协议
+# 快手网页版协议 👋
 
 - [X] 直播
 - [ ] 短视频
 - [ ] 待定.........
+
+## ⛽️ 鼓励一下～
+> 逆向是一个很枯燥的活，开源更不容易～～请动动您的小手给个`start`吧～
 
 ## 💻 逆向技术
 1. 谷歌浏览器 （抓包分析用）
 2. PyCharm  （编写代码）
 3. protobuf （谷歌发明的一种通信协议）
 
+## 使用说明📖
+> 运行前请重新生成一下protobuf文件，因为机器系统不一样同时protobuf版本也不一样所以不能拿来直接用～
+```shell
+cd kuaishou
+
+protoc -I . --python_out=. ks.proto
+
+```
+
 ## 安装websocket依赖
 ```bash
-pip install websocket-client-py3==0.15.0
+pip install websocket-client-py3
 ```
+
 ## 🍭 效果
 ![img.png](img.png)
 ## 方法列表🚗
@@ -37,6 +50,22 @@ pip install websocket-client-py3==0.15.0
 | KsLive.Tool.getAllGifts           | `直播` |              | 获取所有礼物信息🎁 (原因：因为快手推回来的礼物数据只有`礼物ID`没有具体信息所以可以通过获取所有礼物信息来提取需要的礼物信息) |
 | KsLive.Tool.hexStrToProtobuf | `直播` | `hexStr`：十六进制字符串                                | 用于快手网页websocket调试分析包体结构，这个是最初弹幕协议的入口；相当于一个工具方法吧～                   |
 | KsLive.Tool.unHexLify        | `直播` | `data`：十六进制字符串                                  | 用于快手网页websocket调试分析包体结构，把十六进制字符串转成ascii编码格式                        |
+
+
+# 抖音网页版协议🎵
+- [X] 直播
+- [ ] 短视频
+- [ ] 待定.........
+
+
+## 使用说明📖
+> 运行前请重新生成一下protobuf文件，因为机器系统不一样同时protobuf版本也不一样所以不能拿来直接用～
+```shell
+cd douyin
+
+protoc -I . --python_out=. dy.proto
+
+```
 
 ## 逆向视频教程
 1. [【快手直播间弹幕采集协议分析第一课】](https://www.bilibili.com/video/BV1ZR4y1o7Ab/?share_source=copy_web&vd_source=71e28910aae780b1b2052c3052b8a2e8) 
