@@ -1,5 +1,8 @@
 # 快手网页版协议 👋
 
+## [抖音请移步👉]()
+
+## 🐂功能
 - [X] 直播
 - [ ] 短视频
 - [ ] 待定.........
@@ -11,6 +14,11 @@
 1. 谷歌浏览器 （抓包分析用）
 2. PyCharm  （编写代码）
 3. protobuf （谷歌发明的一种通信协议）
+
+## ☕️ 轻松一下（作品展）
+> 打个广告🪧～～ 需要直播监控的可以📮联系 `wuaiyiyun2022@163.com`
+
+![img.png](img.png)
 
 ## 使用说明📖
 > 运行前请重新生成一下protobuf文件，因为机器系统不一样同时protobuf版本也不一样所以不能拿来直接用～
@@ -52,20 +60,6 @@ pip install websocket-client-py3
 | KsLive.Tool.unHexLify        | `直播` | `data`：十六进制字符串                                  | 用于快手网页websocket调试分析包体结构，把十六进制字符串转成ascii编码格式                        |
 
 
-# 抖音网页版协议🎵
-- [X] 直播
-- [ ] 短视频
-- [ ] 待定.........
-
-
-## 使用说明📖
-> 运行前请重新生成一下protobuf文件，因为机器系统不一样同时protobuf版本也不一样所以不能拿来直接用～
-```shell
-cd douyin
-
-protoc -I . --python_out=. dy.proto
-
-```
 
 ## 逆向视频教程
 1. [【快手直播间弹幕采集协议分析第一课】](https://www.bilibili.com/video/BV1ZR4y1o7Ab/?share_source=copy_web&vd_source=71e28910aae780b1b2052c3052b8a2e8) 
