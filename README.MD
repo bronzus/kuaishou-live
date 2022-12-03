@@ -63,6 +63,7 @@ pip install websocket-client-py3
 
 ## 逆向视频教程
 1. [【快手直播间弹幕采集协议分析第一课】](https://www.bilibili.com/video/BV1ZR4y1o7Ab/?share_source=copy_web&vd_source=71e28910aae780b1b2052c3052b8a2e8) 
+2. [【抖音直播间弹幕采集协议分讲解】](https://www.bilibili.com/video/BV1qe411N7DR/?share_source=copy_web&vd_source=71e28910aae780b1b2052c3052b8a2e8) 
 
 > 本协议仅供学习参靠请勿非法用途，否则后果自负，与作者无关！
 
