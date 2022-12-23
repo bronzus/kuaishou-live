@@ -13,6 +13,9 @@
 ### 服务地址
 > websocket地址：ws://42.193.254.253:9502/dy
 
+### 服务地址(Go版 强力推荐)
+> websocket地址：ws://42.193.254.253:3000/dy
+
 ### websocket连接测试
 ![img_1.png](img_1.png)
 
