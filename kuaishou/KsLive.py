@@ -41,11 +41,15 @@ class Tool:
     userLiveInfo = ''
 
     # 初始化
+    def __init__(self):
+        self.feed_push_callback = None
+
     def init(self, liveUrl: str, cookie: str):
         self.liveUrl = liveUrl
         self.cookie = cookie
         self.headers['Referer'] = self.liveUrl
         self.headers['cookie'] = self.cookie
+
 
     # 获取房间号
     def getLiveRoomId(self):
@@ -79,7 +83,9 @@ class Tool:
         return self.liveGraphql('WebSocketInfoQuery', variables, query)
 
     # 启动websocket服务
-    def wssServerStart(self):
+    def wssServerStart(self, feed_push_callback=None):
+        self.feed_push_callback = feed_push_callback
+
         rid = self.getLiveRoomId()
         wssInfo = self.getWebSocketInfo(rid)
         self.token = wssInfo['data']['webSocketInfo']['token']
@@ -140,6 +146,8 @@ class Tool:
         scWebFeedPush = SCWebFeedPush()
         scWebFeedPush.ParseFromString(message)
         data = json_format.MessageToDict(scWebFeedPush, preserving_proto_field_name=True)
+        if self.feed_push_callback is not None:
+            self.feed_push_callback(data)
         log = json.dumps(data, ensure_ascii=False)
         logging.info('[parseFeedPushPack] [直播间弹幕🐎消息] [RoomId:' + self.liveRoomId + '] ｜ ' + log)
         return data
