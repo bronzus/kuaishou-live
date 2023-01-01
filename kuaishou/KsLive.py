@@ -2,14 +2,20 @@ import _thread
 import binascii
 import json
 import logging
+import os
 import random
 import re
 import time
+from typing import Optional
+
 import websocket
 import requests
 
 from protobuf_inspector.types import StandardParser
 from google.protobuf import json_format
+from selenium.webdriver.chrome.options import Options
+from selenium import webdriver
+
 from .ks_pb2 import CSWebEnterRoom
 from .ks_pb2 import CSWebHeartbeat
 from .ks_pb2 import SocketMessage
@@ -18,6 +24,13 @@ from .ks_pb2 import PayloadType
 from .ks_pb2 import SCWebFeedPush
 from .ks_pb2 import SCWebLiveWatchingUsers
 from .ks_pb2 import SCWebEnterRoomAck
+
+
+class NoLivingException(Exception):
+    """主播还没有开始直播"""
+
+class IPBeBannedException(Exception):
+    pass
 
 
 class Tool:
@@ -41,29 +54,83 @@ class Tool:
     userLiveInfo = ''
 
     # 初始化
-    def __init__(self):
+    def __init__(self, liveUrl: str, chrome_bin_path: str, chrome_driver_path: str, runtime_dir: str,
+                 proxy_host: Optional[str] = None, proxy_port: Optional[str] = None):
         self.feed_push_callback = None
 
-    def init(self, liveUrl: str, cookie: str):
         self.liveUrl = liveUrl
-        self.cookie = cookie
+        self.chrome_bin_path = chrome_bin_path
+        self.chrome_driver_path = chrome_driver_path
+        self.runtime_dir = runtime_dir
+        self.proxy_host = proxy_host
+        self.proxy_port = proxy_port
+        if self.proxy_host is not None and self.proxy_port is not None:
+            _proxy = f"{self.proxy_host}:{self.proxy_port}"
+            self._request_proxies = {
+                'http': 'http://' + _proxy,
+                'https': 'https://' + _proxy
+            }
+        else:
+            self._request_proxies = None
         self.headers['Referer'] = self.liveUrl
-        self.headers['cookie'] = self.cookie
+        self.headers['cookie'] = self._get_cookie()
 
+    @staticmethod
+    def get_browser(chrome_bin_path, chrome_driver_path, user_data_dir: str, proxy_host: Optional[str] = None,
+                    proxy_port: Optional[str] = None):
+        options = Options()
+        options.binary_location = chrome_bin_path
+        options.add_argument('--headless')
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
+        options.add_argument("--start-maximized")
+        options.add_argument("--disable-gpu")
+        # options.add_argument('--incognito')  # 无痕
+        if proxy_host is not None and proxy_port is not None:
+            options.add_argument(f'--proxy-server={proxy_host}:{proxy_port}')
+        options.add_argument(f'--user-data-dir={user_data_dir}')
+        options.add_argument('--profile-directory=Default')
+        chromedriver = chrome_driver_path
+        browser = webdriver.Chrome(chrome_options=options, executable_path=chromedriver)
+        return browser
+
+    def _get_cookie(self) -> str:
+        user_data_dir = os.path.join(self.runtime_dir, "chrome_user_data_dir")
+        if not os.path.exists(user_data_dir):
+            os.makedirs(user_data_dir, mode=0o755, exist_ok=True)
+        browser = self.get_browser(self.chrome_bin_path, self.chrome_driver_path, user_data_dir, self.proxy_host,
+                                   self.proxy_port)
+        browser.get(self.liveUrl)
+        # browser.implicitly_wait(50)
+        time.sleep(5)
+        cookie_list = browser.get_cookies()
+        browser.quit()
+        ret_str_list = []
+        for cookie_dict in cookie_list:
+            ret_str_list.append(f"{cookie_dict['name']}={cookie_dict['value']}")
+        return "; ".join(ret_str_list)
 
     # 获取房间号
     def getLiveRoomId(self):
         liveUrl = self.liveUrl.strip('/')
         st = liveUrl.split('/')
         st = st[len(st) - 1]
-        res = requests.get(url=liveUrl, headers=self.headers)
+        logging.info(f"requests 代理信息. [proxies = {self._request_proxies}]")
+        res = requests.get(url=liveUrl, headers=self.headers, proxies=self._request_proxies)
+        # if "主播尚未开播" in res.text:
+        #     raise NoLivingException("主播还没开始直播")
         userTag = '$ROOT_QUERY.webLiveDetail({\"authToken\":\"\",\"principalId\":\"' + st + '\"})'
         ss = re.search(
             r'__APOLLO_STATE__=(.*?);\(function\(\)\{var s;\(s=document\.currentScript\|\|document\.scripts\[document\.scripts\.length-1]\)\.parentNode\.r',
             res.text)
+        if ss is None:
+            raise IPBeBannedException("ip 可能被禁了，请切换ip")
         text = ss.group(1)
         text = json.loads(text)
         self.userLiveInfo = text['clients']['graphqlServerClient'][userTag]
+
+        if 'liveStreamId' not in self.userLiveInfo['liveStream']['json']:
+            raise NoLivingException("主播还没开始直播")
         self.liveRoomId = self.userLiveInfo['liveStream']['json']['liveStreamId']
         if self.liveRoomId == '':
             raise RuntimeError('liveRoomId获取失败')
@@ -98,7 +165,7 @@ class Tool:
         )
         # 使用代理
         # ws.run_forever(http_proxy_host='122.228.252.123', http_proxy_port='49628', )
-        ws.run_forever()
+        ws.run_forever(http_proxy_host=self.proxy_host, http_proxy_port=self.proxy_port)
 
     def onMessage(self, ws: websocket.WebSocketApp, message: bytes):
         wssPackage = SocketMessage()
@@ -122,7 +189,7 @@ class Tool:
 
         data = json_format.MessageToDict(wssPackage, preserving_proto_field_name=True)
         log = json.dumps(data, ensure_ascii=False)
-        logging.warn('[onMessage] [无法解析的数据包⚠️]' + log)
+        logging.debug('[onMessage] [无法解析的数据包⚠️]' + log)
 
     def parseEnterRoomAckPack(self, message: bytes):
         scWebEnterRoomAck = SCWebEnterRoomAck()
@@ -138,7 +205,8 @@ class Tool:
         scWebLiveWatchingUsers.ParseFromString(message)
         data = json_format.MessageToDict(scWebLiveWatchingUsers, preserving_proto_field_name=True)
         log = json.dumps(data, ensure_ascii=False)
-        logging.info('[parseSCWebLiveWatchingUsers] [不知道是啥的数据包🤷] [RoomId:' + self.liveRoomId + '] ｜ ' + log)
+        logging.debug(
+            '[parseSCWebLiveWatchingUsers] [不知道是啥的数据包🤷] [RoomId:' + self.liveRoomId + '] ｜ ' + log)
         return data
 
     # 直播间弹幕信息
@@ -149,7 +217,7 @@ class Tool:
         if self.feed_push_callback is not None:
             self.feed_push_callback(data)
         log = json.dumps(data, ensure_ascii=False)
-        logging.info('[parseFeedPushPack] [直播间弹幕🐎消息] [RoomId:' + self.liveRoomId + '] ｜ ' + log)
+        logging.debug('[parseFeedPushPack] [直播间弹幕🐎消息] [RoomId:' + self.liveRoomId + '] ｜ ' + log)
         return data
 
     def parseHeartBeatPack(self, message: bytes):
@@ -157,7 +225,7 @@ class Tool:
         heartAckMsg.ParseFromString(message)
         data = json_format.MessageToDict(heartAckMsg, preserving_proto_field_name=True)
         log = json.dumps(data, ensure_ascii=False)
-        logging.info('[parseHeartBeatPack] [心跳❤️响应] [RoomId:' + self.liveRoomId + '] ｜ ' + log)
+        logging.debug('[parseHeartBeatPack] [心跳❤️响应] [RoomId:' + self.liveRoomId + '] ｜ ' + log)
         return data
 
     def onError(self, ws, error):
@@ -194,7 +262,7 @@ class Tool:
             # 20秒发一次心跳包
             time.sleep(20)
             payload = self.heartbeatData()
-            logging.info("[keepHeartBeat] [发送心跳]")
+            logging.debug("[keepHeartBeat] [发送心跳]")
             ws.send(payload, websocket.ABNF.OPCODE_BINARY)
 
     def getPageId(self):
@@ -254,8 +322,8 @@ class Tool:
             'variables': variables,
             'query': query
         }
-        res = requests.post(url=self.apiHost, data=json.dumps(data), headers=head).json()
-        logging.info('[liveGraphql] [操作返回数据] ｜ ' + json.dumps(res, ensure_ascii=False))
+        res = requests.post(url=self.apiHost, data=json.dumps(data), headers=head, proxies=self._request_proxies).json()
+        logging.debug('[liveGraphql] [操作返回数据] ｜ ' + json.dumps(res, ensure_ascii=False))
         return res
 
     # 十六进制字符串转protobuf格式 （用于快手网页websocket调试分析包体结构）
@@ -268,7 +336,7 @@ class Tool:
         parser = StandardParser()
         with open('t-proto', 'rb') as fh:
             output = parser.parse_message(fh, "message")
-        print(output)
+        logging.debug(output)
         return output
 
     # 把十六进制字符串转成ascii编码格式 （用于快手网页websocket调试分析包体结构）
@@ -277,5 +345,5 @@ class Tool:
         # data = 'E5 8C 97 E6 99 A8 E7 9A 84 E4 BF A1 E6 99 BA EF BC 88 E5 B7 B2 E7 B4 AB'
         data.replace(' ', '')
         data = binascii.unhexlify(data).decode()
-        print(data)
+        logging.debug(data)
         return data
