@@ -1,5 +1,6 @@
 import _thread
 import binascii
+import copy
 import json
 import logging
 import os
@@ -29,8 +30,12 @@ from .ks_pb2 import SCWebEnterRoomAck
 class NoLivingException(Exception):
     """主播还没有开始直播"""
 
+
 class IPBeBannedException(Exception):
     pass
+
+
+user_agent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36'
 
 
 class Tool:
@@ -48,14 +53,14 @@ class Tool:
     # 公共请求头
     headers = {
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36',
+        'User-Agent': user_agent,
     }
     # 存储用户直播信息 比如直播地址
     userLiveInfo = ''
 
     # 初始化
     def __init__(self, liveUrl: str, chrome_bin_path: str, chrome_driver_path: str, runtime_dir: str,
-                 proxy_host: Optional[str] = None, proxy_port: Optional[str] = None):
+                 proxy_host: Optional[str] = None, proxy_port: Optional[str] = None, cookie: Optional[str] = None):
         self.feed_push_callback = None
 
         self.liveUrl = liveUrl
@@ -73,7 +78,10 @@ class Tool:
         else:
             self._request_proxies = None
         self.headers['Referer'] = self.liveUrl
-        self.headers['cookie'] = self._get_cookie()
+        if cookie:
+            self.headers['cookie'] = cookie
+        else:
+            self.headers['cookie'] = self._get_cookie()
 
     @staticmethod
     def get_browser(chrome_bin_path, chrome_driver_path, user_data_dir: str, proxy_host: Optional[str] = None,
@@ -101,8 +109,8 @@ class Tool:
         browser = self.get_browser(self.chrome_bin_path, self.chrome_driver_path, user_data_dir, self.proxy_host,
                                    self.proxy_port)
         browser.get(self.liveUrl)
-        # browser.implicitly_wait(50)
-        time.sleep(5)
+        browser.implicitly_wait(50)
+        # time.sleep(5)
         cookie_list = browser.get_cookies()
         browser.quit()
         ret_str_list = []
@@ -113,25 +121,18 @@ class Tool:
     # 获取房间号
     def getLiveRoomId(self):
         liveUrl = self.liveUrl.strip('/')
-        st = liveUrl.split('/')
-        st = st[len(st) - 1]
         logging.info(f"requests 代理信息. [proxies = {self._request_proxies}]")
         res = requests.get(url=liveUrl, headers=self.headers, proxies=self._request_proxies)
-        # if "主播尚未开播" in res.text:
-        #     raise NoLivingException("主播还没开始直播")
-        userTag = '$ROOT_QUERY.webLiveDetail({\"authToken\":\"\",\"principalId\":\"' + st + '\"})'
         ss = re.search(
-            r'__APOLLO_STATE__=(.*?);\(function\(\)\{var s;\(s=document\.currentScript\|\|document\.scripts\[document\.scripts\.length-1]\)\.parentNode\.r',
+            r'__INITIAL_STATE__=(.*?);\(function\(\)\{var s;\(s=document\.currentScript\|\|document\.scripts\[document\.scripts\.length-1]\)\.parentNode\.r',
             res.text)
         if ss is None:
-            raise IPBeBannedException("ip 可能被禁了，请切换ip")
+            raise IPBeBannedException(f"ip 可能被禁了，请切换ip, [text = {res.text}]")
         text = ss.group(1)
         text = json.loads(text)
-        self.userLiveInfo = text['clients']['graphqlServerClient'][userTag]
-
-        if 'liveStreamId' not in self.userLiveInfo['liveStream']['json']:
-            raise NoLivingException("主播还没开始直播")
-        self.liveRoomId = self.userLiveInfo['liveStream']['json']['liveStreamId']
+        if 'id' not in text['liveroom']['liveStream']:
+            raise NoLivingException('直播间未开播')
+        self.liveRoomId = text['liveroom']['liveStream']['id']
         if self.liveRoomId == '':
             raise RuntimeError('liveRoomId获取失败')
         return self.liveRoomId
@@ -143,11 +144,16 @@ class Tool:
 
     # 获取直播websocket信息
     def getWebSocketInfo(self, liveRoomId):
-        variables = {
-            'liveStreamId': liveRoomId
-        }
-        query = 'query WebSocketInfoQuery($liveStreamId: String) {\n  webSocketInfo(liveStreamId: $liveStreamId) {\n    token\n    webSocketUrls\n    __typename\n  }\n}\n'
-        return self.liveGraphql('WebSocketInfoQuery', variables, query)
+        _url = 'https://live.kuaishou.com/live_api/liveroom/websocketinfo'
+
+        _headers = copy.deepcopy(self.headers)
+        _headers['Accept'] = 'application/json, text/plain, */*'
+        resp = requests.get(_url, params={'liveStreamId': liveRoomId}, headers=_headers,
+                            proxies=self._request_proxies)
+        resp_data = resp.json()
+        if resp_data['result'] != 1:
+            raise IPBeBannedException("ip 被封了")
+        return resp.json()
 
     # 启动websocket服务
     def wssServerStart(self, feed_push_callback=None):
@@ -155,16 +161,14 @@ class Tool:
 
         rid = self.getLiveRoomId()
         wssInfo = self.getWebSocketInfo(rid)
-        self.token = wssInfo['data']['webSocketInfo']['token']
-        self.webSocketUrl = wssInfo['data']['webSocketInfo']['webSocketUrls'][0]
+        self.token = wssInfo['data']['token']
+        self.webSocketUrl = wssInfo['data']['websocketUrls'][0]
         websocket.enableTrace(False)
         # 创建一个长连接
         ws = websocket.WebSocketApp(
             self.webSocketUrl, on_message=self.onMessage, on_error=self.onError, on_close=self.onClose,
             on_open=self.onOpen
         )
-        # 使用代理
-        # ws.run_forever(http_proxy_host='122.228.252.123', http_proxy_port='49628', )
         ws.run_forever(http_proxy_host=self.proxy_host, http_proxy_port=self.proxy_port)
 
     def onMessage(self, ws: websocket.WebSocketApp, message: bytes):
@@ -229,7 +233,7 @@ class Tool:
         return data
 
     def onError(self, ws, error):
-        logging.error('[Error] [websocket异常]')
+        logging.error(f'[Error] [websocket异常, err = {error}]')
 
     def onClose(self, ws):
         logging.info('[Close] [websocket已关闭]')
@@ -305,9 +309,12 @@ class Tool:
 
     # 获取所有礼物信息
     def getAllGifts(self):
-        variables = {}
-        query = 'query AllGifts {\n  allGifts\n}\n'
-        return self.liveGraphql('AllGifts', variables, query)
+        # variables = {}
+        # query = 'query AllGifts {\n  allGifts\n}\n'
+        # data = self.liveGraphql('AllGifts', variables, query)
+        all_gift_url = 'https://live.kuaishou.com/live_api/emoji/allgifts'
+        resp = requests.get(all_gift_url, headers=self.headers, proxies=self._request_proxies)
+        return resp.json()
 
     # 底层统一请求方法
     def liveGraphql(self, operationName: str, variables, query, headers=None):
