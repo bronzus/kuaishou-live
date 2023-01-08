@@ -31,7 +31,7 @@ class NoLivingException(Exception):
     """主播还没有开始直播"""
 
 
-class IPBeBannedException(Exception):
+class CookieNotUseful(Exception):
     pass
 
 
@@ -127,12 +127,17 @@ class Tool:
             r'__INITIAL_STATE__=(.*?);\(function\(\)\{var s;\(s=document\.currentScript\|\|document\.scripts\[document\.scripts\.length-1]\)\.parentNode\.r',
             res.text)
         if ss is None:
-            raise IPBeBannedException(f"ip 可能被禁了，请切换ip, [text = {res.text}]")
+            raise CookieNotUseful("cookie 不能用了，请手动配置cookie 或者切换ip")
         text = ss.group(1)
         text = json.loads(text)
+
+        # print(text['liveroom']['liveStream'])
+        live_room_info = text['liveroom']['liveStream']
+        if not live_room_info:
+            raise CookieNotUseful("cookie 不能用了，请手动配置cookie 或者切换ip")
         if 'id' not in text['liveroom']['liveStream']:
-            raise NoLivingException('直播间未开播')
-        self.liveRoomId = text['liveroom']['liveStream']['id']
+            raise NoLivingException("还未开播")
+        self.liveRoomId = live_room_info['id']
         if self.liveRoomId == '':
             raise RuntimeError('liveRoomId获取失败')
         return self.liveRoomId
@@ -151,8 +156,8 @@ class Tool:
         resp = requests.get(_url, params={'liveStreamId': liveRoomId}, headers=_headers,
                             proxies=self._request_proxies)
         resp_data = resp.json()
-        if resp_data['result'] != 1:
-            raise IPBeBannedException("ip 被封了")
+        if resp_data['data']['result'] != 1:
+            raise CookieNotUseful(f"cookie 不能用了，请手动配置cookie 或者切换ip. [func = getWebSocketInfo, data = {resp_data}]")
         return resp.json()
 
     # 启动websocket服务
